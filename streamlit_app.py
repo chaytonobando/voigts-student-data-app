@@ -760,7 +760,7 @@ def run_comparison(ai_file, comparison_file):
             tmp_comp_path = tmp_comp.name
         
         # Load data
-        comparator.load_ai_extractor_data(tmp_ai_path)  # Use auto sheet detection
+        comparator.load_ai_extractor_data(tmp_ai_path, sheet_name="Extracted Data")
         
         status_text.text("📊 Loading comparison data...")
         progress_bar.progress(50)
