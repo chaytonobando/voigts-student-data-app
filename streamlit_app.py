@@ -3048,16 +3048,25 @@ def process_comparison(ai_file, comparison_file, fuzzy_threshold, max_results):
             # Load the data files
             st.info("🔄 Loading AI extractor data...")
             ai_data = comparator.load_ai_extractor_data(ai_temp_path)
-            st.info(f"✅ Loaded {len(ai_data) if ai_data else 0} AI records")
+            ai_count = len(ai_data) if ai_data is not None and not ai_data.empty else 0
+            st.info(f"✅ Loaded {ai_count} AI records")
             
             st.info("🔄 Loading comparison data...")
             comparison_data = comparator.load_comparison_data(comp_temp_path)
-            st.info(f"✅ Loaded {len(comparison_data) if comparison_data else 0} comparison records")
+            comparison_count = len(comparison_data) if comparison_data is not None and not comparison_data.empty else 0
+            st.info(f"✅ Loaded {comparison_count} comparison records")
             
             # Run comparison with fuzzy threshold
             st.info(f"🔄 Running comparison with fuzzy threshold: {fuzzy_threshold}...")
             results = comparator.compare_data(fuzzy_threshold=fuzzy_threshold)
-            st.info(f"✅ Comparison completed with {len(results.get('matches', [])) if results else 0} matches")
+            
+            # Check if results is valid
+            if results is None:
+                st.error("❌ Comparison returned no results")
+                return None, None, None
+                
+            matches_count = len(results.get('matches', [])) if isinstance(results, dict) else 0
+            st.info(f"✅ Comparison completed with {matches_count} matches")
             
             # Create output file
             output_filename = f"validation_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
