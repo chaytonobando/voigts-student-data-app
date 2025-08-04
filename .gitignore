@@ -149,3 +149,11 @@ temp/
 tmp/
 logs/
 *.log
+
+# Streamlit secrets (NEVER commit these!)
+.streamlit/secrets.toml
+secrets.toml
+
+# Environment variables
+.env
+.env.local
