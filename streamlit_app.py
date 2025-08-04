@@ -3058,6 +3058,26 @@ def process_comparison(ai_file, comparison_file, fuzzy_threshold, max_results):
             
             # Run comparison with fuzzy threshold
             st.info(f"🔄 Running comparison with fuzzy threshold: {fuzzy_threshold}...")
+            
+            # Add debugging info about the data
+            if ai_data is not None and not ai_data.empty:
+                st.info(f"🔍 AI data columns: {list(ai_data.columns)}")
+                if 'Student Name' in ai_data.columns:
+                    st.info(f"🔍 Sample AI names: {ai_data['Student Name'].head(3).tolist()}")
+                elif 'Name' in ai_data.columns:
+                    st.info(f"🔍 Sample AI names: {ai_data['Name'].head(3).tolist()}")
+                else:
+                    st.info(f"🔍 AI data first few columns: {ai_data.iloc[:3, :3].to_dict()}")
+            
+            if comparison_data is not None and not comparison_data.empty:
+                st.info(f"🔍 Comparison data columns: {list(comparison_data.columns)}")
+                if 'Student Name' in comparison_data.columns:
+                    st.info(f"🔍 Sample comparison names: {comparison_data['Student Name'].head(3).tolist()}")
+                elif 'Name' in comparison_data.columns:
+                    st.info(f"🔍 Sample comparison names: {comparison_data['Name'].head(3).tolist()}")
+                else:
+                    st.info(f"🔍 Comparison data first few columns: {comparison_data.iloc[:3, :3].to_dict()}")
+            
             results = comparator.compare_data(fuzzy_threshold=fuzzy_threshold)
             
             # Check if results is valid
@@ -3068,17 +3088,38 @@ def process_comparison(ai_file, comparison_file, fuzzy_threshold, max_results):
             matches_count = len(results.get('matches', [])) if isinstance(results, dict) else 0
             st.info(f"✅ Comparison completed with {matches_count} matches")
             
+            # Add debugging for zero matches
+            if matches_count == 0:
+                st.warning("⚠️ No matches found - this might indicate:")
+                st.warning("  • Column name mismatch between files")
+                st.warning("  • Different name formats (Last, First vs First Last)")
+                st.warning("  • Fuzzy threshold too strict (try lowering it)")
+                st.warning("  • No overlapping student names between datasets")
+            
             # Create output file
             output_filename = f"validation_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
             output_path = tempfile.mktemp(suffix=".xlsx")
             
             # Export results
             st.info("🔄 Exporting results...")
-            comparator.export_results(output_path)
+            try:
+                comparator.export_results(output_path)
+                st.info(f"✅ Results exported to temporary file: {output_path}")
+            except Exception as export_error:
+                st.error(f"❌ Export failed: {str(export_error)}")
+                # Try to continue even if export fails, using empty file
+                with open(output_path, 'wb') as f:
+                    f.write(b'')  # Create empty file
+                st.warning("⚠️ Created empty results file due to export error")
             
             # Read the output file
-            with open(output_path, 'rb') as f:
-                output_data = f.read()
+            try:
+                with open(output_path, 'rb') as f:
+                    output_data = f.read()
+                st.info(f"✅ Read {len(output_data)} bytes from output file")
+            except Exception as read_error:
+                st.error(f"❌ Failed to read output file: {str(read_error)}")
+                output_data = b''  # Empty bytes
             
             # Clean up temporary files
             os.unlink(ai_temp_path)
@@ -3096,6 +3137,16 @@ def process_comparison(ai_file, comparison_file, fuzzy_threshold, max_results):
                     'match_score': match.get('match_score', 0),
                     'match_found': True
                 })
+            
+            # Handle case where no matches found
+            if len(simplified_results) == 0:
+                st.info("ℹ️ No matches found - creating summary report with recommendations")
+                simplified_results = [{
+                    'ai_student': 'No matches found',
+                    'comparison_student': 'Check column names and data format',
+                    'match_score': 0,
+                    'match_found': False
+                }]
             
             st.info(f"✅ Processed {len(simplified_results)} validation results")
             return simplified_results, output_data, output_filename
