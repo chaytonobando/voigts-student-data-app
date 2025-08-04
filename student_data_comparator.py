@@ -203,7 +203,41 @@ class StudentDataComparator:
         """Create a combined name from row data, handling first/last name columns intelligently"""
         combined_parts = []
         
+        # Check if we have both first and last name columns
+        first_name_col = None
+        last_name_col = None
+        other_name_cols = []
+        
         for col in name_columns:
+            col_lower = str(col).lower()
+            if 'first' in col_lower and ('name' in col_lower or col_lower.strip() == 'first'):
+                first_name_col = col
+            elif 'last' in col_lower and ('name' in col_lower or col_lower.strip() == 'last'):
+                last_name_col = col
+            else:
+                other_name_cols.append(col)
+        
+        # If we have first and last name columns, combine them properly
+        if first_name_col and last_name_col:
+            first_name = ""
+            last_name = ""
+            
+            if pd.notna(row[first_name_col]) and str(row[first_name_col]).strip():
+                first_name = self.normalize_name(str(row[first_name_col]).strip())
+            
+            if pd.notna(row[last_name_col]) and str(row[last_name_col]).strip():
+                last_name = self.normalize_name(str(row[last_name_col]).strip())
+            
+            # Combine first and last name
+            if first_name and last_name:
+                combined_parts.append(f"{first_name} {last_name}")
+            elif first_name:
+                combined_parts.append(first_name)
+            elif last_name:
+                combined_parts.append(last_name)
+        
+        # Add other name columns
+        for col in other_name_cols:
             if pd.notna(row[col]) and str(row[col]).strip():
                 col_value = str(row[col]).strip()
                 
@@ -278,11 +312,40 @@ class StudentDataComparator:
                 ai_name_columns = [detected_ai_columns[0]]  # Use first detected if no perfect match
         
         if comparison_name_columns is None:
-            comparison_name_columns = self.detect_name_columns(self.comparison_data)
+            detected_comp_columns = self.detect_name_columns(self.comparison_data)
+            # Handle separate first/last name columns by combining them
+            comparison_name_columns = detected_comp_columns
+            
+            # If we have First Name and Last Name columns, we'll combine them in _create_combined_name
+            self.logger.info(f"🔍 Detected comparison columns: {detected_comp_columns}")
         
         if not ai_name_columns or not comparison_name_columns:
             self.logger.warning("⚠️ Could not detect name columns automatically")
-            return {"error": "No name columns detected"}
+            # Try fallback column detection
+            if not ai_name_columns:
+                # Look for any column containing "name"
+                for col in self.ai_extractor_data.columns:
+                    if 'name' in str(col).lower():
+                        ai_name_columns = [col]
+                        break
+            
+            if not comparison_name_columns:
+                # For comparison data, try to find First Name and Last Name
+                first_name_col = None
+                last_name_col = None
+                for col in self.comparison_data.columns:
+                    col_lower = str(col).lower()
+                    if 'first' in col_lower and 'name' in col_lower:
+                        first_name_col = col
+                    elif 'last' in col_lower and 'name' in col_lower:
+                        last_name_col = col
+                
+                if first_name_col and last_name_col:
+                    comparison_name_columns = [first_name_col, last_name_col]
+                    self.logger.info(f"🔍 Using fallback: First/Last name columns: {comparison_name_columns}")
+            
+            if not ai_name_columns or not comparison_name_columns:
+                return {"error": "No name columns detected", "matches": []}
         
         self.logger.info(f"📝 Using AI extractor name columns: {ai_name_columns}")
         self.logger.info(f"📝 Using comparison name columns: {comparison_name_columns}")
@@ -376,7 +439,17 @@ class StudentDataComparator:
             'matches_found': len(self.matches),
             'unmatched_ai': len(self.unmatched_ai),
             'unmatched_comparison': len(self.unmatched_comparison),
-            'match_rate': len(self.matches) / len(ai_names) * 100 if ai_names else 0
+            'match_rate': len(self.matches) / len(ai_names) * 100 if ai_names else 0,
+            'matches': [  # Add this for streamlit_app.py compatibility
+                {
+                    'ai_student_name': match['ai_name'],
+                    'comparison_student_name': match['comparison_name'],
+                    'match_score': match['match_score'],
+                    'ai_data': match['ai_data'],
+                    'comparison_data': match['comparison_data']
+                }
+                for match in self.matches
+            ]
         }
         
         self.logger.info(f"✅ Comparison complete:")
