@@ -63,8 +63,10 @@ except ImportError:
 try:
     from traversa_data_processor import TraversaDataProcessor
     TRAVERSA_PROCESSOR_AVAILABLE = True
-except ImportError:
+    print("✅ TraversaDataProcessor imported successfully!")
+except ImportError as e:
     TRAVERSA_PROCESSOR_AVAILABLE = False
+    print(f"❌ TraversaDataProcessor import failed: {e}")
 
 # Configure Streamlit page
 st.set_page_config(
