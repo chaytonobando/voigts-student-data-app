@@ -665,6 +665,11 @@ def create_navigation_menu():
         st.session_state.current_page = "Dashboard"
         st.rerun()
     
+    # Diagnostics button
+    if st.sidebar.button("🔧 System Diagnostics", use_container_width=True):
+        st.session_state.current_page = "Diagnostics"
+        st.rerun()
+    
     # Show current page indicator
     if 'current_page' in st.session_state and st.session_state.current_page != "Dashboard":
         st.sidebar.markdown(f"**📍 Current Page:**")
@@ -675,6 +680,7 @@ def create_navigation_menu():
     st.sidebar.markdown("### ℹ️ How to Navigate")
     st.sidebar.markdown("• **Dashboard:** Click tool cards to navigate")
     st.sidebar.markdown("• **Any Page:** Use 🏠 Home button to return")
+    st.sidebar.markdown("• **Issues:** Use 🔧 Diagnostics for troubleshooting")
     
     # Initialize current page if not set
     if 'current_page' not in st.session_state:
@@ -939,6 +945,195 @@ def show_dashboard():
     
     Choose a tool from the sidebar to begin!
     """)
+
+def show_diagnostics():
+    """Diagnostics page to troubleshoot app issues"""
+    # Home button at the top
+    col1, col2, col3 = st.columns([1, 8, 1])
+    with col1:
+        if st.button("🏠 Home", key="home_diagnostics"):
+            st.session_state.current_page = "Dashboard"
+            st.rerun()
+    
+    st.markdown('<h1 class="main-header"><span class="emoji-icon">🔧</span>System Diagnostics</h1>', unsafe_allow_html=True)
+    st.markdown('<p class="subtitle">Troubleshoot app functionality and check system status</p>', unsafe_allow_html=True)
+    
+    # System Status Check
+    st.markdown("## 🔍 System Status Check")
+    
+    # Check Python imports
+    st.markdown("### 📦 Python Dependencies")
+    
+    dependencies = {
+        "streamlit": True,
+        "pandas": True,
+        "azure.ai.formrecognizer": AI_EXTRACTOR_AVAILABLE,
+        "azure.core.credentials": AI_EXTRACTOR_AVAILABLE,
+        "docx": True,
+        "reportlab": True,
+        "fuzzywuzzy": True,
+        "traversa_data_processor": TRAVERSA_PROCESSOR_AVAILABLE
+    }
+    
+    for dep, available in dependencies.items():
+        if available:
+            st.success(f"✅ {dep} - Available")
+        else:
+            st.error(f"❌ {dep} - Not Available")
+    
+    # Check Azure Configuration
+    st.markdown("### ☁️ Azure AI Configuration")
+    
+    try:
+        endpoint = st.secrets["azure"]["endpoint"]
+        api_key = st.secrets["azure"]["api_key"]
+        
+        if endpoint and endpoint != "YOUR_AZURE_ENDPOINT_HERE":
+            st.success(f"✅ Azure Endpoint: {endpoint}")
+        else:
+            st.error("❌ Azure Endpoint: Not configured or using placeholder")
+            
+        if api_key and api_key != "YOUR_AZURE_API_KEY_HERE":
+            masked_key = api_key[:8] + "..." + api_key[-4:] if len(api_key) > 12 else "***"
+            st.success(f"✅ Azure API Key: {masked_key}")
+        else:
+            st.error("❌ Azure API Key: Not configured or using placeholder")
+            
+        # Test Azure Connection
+        if AI_EXTRACTOR_AVAILABLE and endpoint and api_key:
+            st.markdown("#### 🧪 Testing Azure Connection")
+            if st.button("Test Azure AI Connection"):
+                try:
+                    from azure.ai.formrecognizer import DocumentAnalysisClient
+                    from azure.core.credentials import AzureKeyCredential
+                    
+                    client = DocumentAnalysisClient(
+                        endpoint=endpoint,
+                        credential=AzureKeyCredential(api_key)
+                    )
+                    
+                    # Try to get account info (this will validate credentials)
+                    st.success("✅ Azure AI connection successful!")
+                    st.info("Your Azure AI Document Intelligence is properly configured.")
+                    
+                except Exception as e:
+                    st.error(f"❌ Azure AI connection failed: {str(e)}")
+                    st.info("Check your endpoint URL and API key in Streamlit Cloud secrets.")
+        
+    except Exception as e:
+        st.error("❌ Azure secrets not found or incorrectly configured")
+        st.markdown("""
+        **To fix this:**
+        1. Go to [share.streamlit.io](https://share.streamlit.io)
+        2. Open your app settings
+        3. Go to "Secrets" tab
+        4. Add your Azure credentials:
+        ```toml
+        [azure]
+        endpoint = "https://your-resource.cognitiveservices.azure.com/"
+        api_key = "your-32-character-api-key"
+        ```
+        """)
+    
+    # Feature Availability
+    st.markdown("### 🛠️ Feature Availability")
+    
+    features = {
+        "Word to PDF Conversion": True,
+        "AI PDF Data Extraction": AI_EXTRACTOR_AVAILABLE,
+        "Data Validation (Basic)": True,
+        "Traversa Data Preparation": TRAVERSA_PROCESSOR_AVAILABLE,
+        "Excel Comparison": True
+    }
+    
+    for feature, available in features.items():
+        if available:
+            st.success(f"✅ {feature}")
+        else:
+            st.warning(f"⚠️ {feature} - Limited functionality (cloud deployment)")
+    
+    # Troubleshooting Guide
+    st.markdown("## 🚨 Troubleshooting Common Issues")
+    
+    with st.expander("🤖 AI Data Extraction Not Working"):
+        st.markdown("""
+        **Possible causes:**
+        1. **Azure credentials not set up** - Configure secrets in Streamlit Cloud
+        2. **Invalid endpoint or API key** - Check your Azure portal for correct values
+        3. **Network connectivity** - Azure services might be temporarily unavailable
+        4. **File format issues** - Only PDF files are supported for AI extraction
+        
+        **Solutions:**
+        1. Use the "Test Azure AI Connection" button above
+        2. Verify your Azure resource is active and has quota
+        3. Check the Azure portal for service status
+        4. Ensure PDFs are not password protected or corrupted
+        """)
+    
+    with st.expander("📊 Excel Comparison Not Working"):
+        st.markdown("""
+        **Possible causes:**
+        1. **File format issues** - Only .xlsx and .xls files supported
+        2. **Empty or malformed files** - Files must contain actual data
+        3. **Memory limitations** - Very large files may not process in cloud environment
+        4. **Column mismatch** - Ensure files have appropriate columns for comparison
+        
+        **Solutions:**
+        1. Try with smaller test files first
+        2. Ensure Excel files are properly formatted
+        3. Check that files contain student data in recognizable columns
+        4. Use the "General Excel Comparison" tab for more flexibility
+        """)
+    
+    with st.expander("🚌 Traversa Preparation Not Working"):
+        st.markdown("""
+        **Status:** This feature has limited availability in cloud deployment
+        
+        **Workaround:**
+        1. Use the "Data Validation" feature to get comparison results
+        2. Download the validation Excel file
+        3. Manually format for Traversa using the provided guidance
+        4. For full Traversa automation, contact support for local deployment options
+        """)
+    
+    with st.expander("☁️ General Cloud Deployment Limitations"):
+        st.markdown("""
+        **Cloud vs Local Differences:**
+        1. Some advanced features require additional modules not included in cloud deployment
+        2. File size limits may apply in cloud environment
+        3. Processing time may be longer due to shared resources
+        4. Some local file system operations are restricted
+        
+        **Cloud Optimizations Applied:**
+        1. Simplified imports for better compatibility
+        2. Graceful fallbacks when advanced features unavailable
+        3. Error handling for missing dependencies
+        4. Core functionality preserved for all essential features
+        """)
+    
+    # Quick Actions
+    st.markdown("## ⚡ Quick Actions")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("🔄 Restart App Session"):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.success("Session cleared! Refresh the page.")
+    
+    with col2:
+        if st.button("🧪 Test File Upload"):
+            st.info("Try uploading a small test file in any of the tools to verify upload functionality.")
+    
+    with col3:
+        if st.button("📞 Get Support"):
+            st.markdown("""
+            **Support Channels:**
+            - Technical Issues: GitHub Issues
+            - Business: Contact Voigt's Bus Companies  
+            - Development: Contact Chayton Creations Co.
+            """)
 
 def convert_docx_to_pdf_silent(docx_file, output_dir):
     """Convert a DOCX file to PDF using python-docx and reportlab (silent, no Word app needed)"""
@@ -1298,18 +1493,32 @@ def show_word_to_pdf():
 def extract_data_from_pdfs(pdf_files, progress_callback=None, model_id="auto", extract_options=None, file_models=None):
     """Extract data from uploaded PDF files using Azure AI"""
     try:
+        # Check if Azure AI is available
+        if not AI_EXTRACTOR_AVAILABLE:
+            return {"error": "Azure AI libraries not available. Please check installation."}
+        
         # Get Azure credentials from secrets
         try:
             endpoint = st.secrets["azure"]["endpoint"]
             api_key = st.secrets["azure"]["api_key"]
-        except:
-            return {"error": "Azure credentials not configured"}
+            
+            # Validate credentials are not placeholders
+            if endpoint == "YOUR_AZURE_ENDPOINT_HERE" or api_key == "YOUR_AZURE_API_KEY_HERE":
+                return {"error": "Azure credentials not properly configured. Please set up real credentials in Streamlit Cloud secrets."}
+                
+        except KeyError as e:
+            return {"error": f"Azure credentials missing from secrets: {str(e)}"}
+        except Exception as e:
+            return {"error": f"Error accessing Azure credentials: {str(e)}"}
         
         # Initialize Azure AI client
-        client = DocumentAnalysisClient(
-            endpoint=endpoint,
-            credential=AzureKeyCredential(api_key)
-        )
+        try:
+            client = DocumentAnalysisClient(
+                endpoint=endpoint,
+                credential=AzureKeyCredential(api_key)
+            )
+        except Exception as e:
+            return {"error": f"Failed to initialize Azure AI client: {str(e)}"}
         
         extracted_data = []
         
@@ -2795,6 +3004,8 @@ def main():
         show_traversa_preparation()
     elif current_page == "All-in-One":
         show_all_in_one()
+    elif current_page == "Diagnostics":
+        show_diagnostics()
     
     # Footer (shown on all pages)
     st.markdown("---")
