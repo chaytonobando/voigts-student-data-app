@@ -26,7 +26,12 @@ try:
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils.dataframe import dataframe_to_rows
-    from openpyxl.comments import Comment
+    try:
+        from openpyxl.comments import Comment
+        COMMENTS_AVAILABLE = True
+    except ImportError:
+        COMMENTS_AVAILABLE = False
+        Comment = None
 except ImportError as e:
     print(f"❌ Missing required library: {e}")
     print("Please install required packages:")
@@ -34,7 +39,13 @@ except ImportError as e:
     sys.exit(1)
 
 # Import our existing comparator
-from student_data_comparator import StudentDataComparator
+try:
+    from student_data_comparator import StudentDataComparator
+    COMPARATOR_AVAILABLE = True
+except ImportError as e:
+    print(f"❌ Warning: StudentDataComparator not available: {e}")
+    COMPARATOR_AVAILABLE = False
+    StudentDataComparator = None
 
 
 class TraversaDataProcessor:
@@ -43,6 +54,10 @@ class TraversaDataProcessor:
     def __init__(self, log_level=logging.INFO):
         """Initialize the Traversa processor"""
         self.setup_logging(log_level)
+        
+        if not COMPARATOR_AVAILABLE:
+            raise ImportError("StudentDataComparator is not available - cannot initialize TraversaDataProcessor")
+        
         self.comparator = StudentDataComparator(log_level)
         self.traversa_data = None
         self.field_mappings = {}
