@@ -3023,22 +3023,67 @@ def process_comparison(ai_file, comparison_file, fuzzy_threshold, max_results):
     try:
         # Import the comparison functionality
         from student_data_comparator import StudentDataComparator
+        import tempfile
+        import os
         
-        # Create comparator instance
-        comparator = StudentDataComparator(
-            ai_file=ai_file,
-            comparison_file=comparison_file,
-            fuzzy_threshold=fuzzy_threshold,
-            max_results=max_results
-        )
+        # Create temporary files for processing
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as ai_temp:
+            ai_temp.write(ai_file.getvalue())
+            ai_temp_path = ai_temp.name
+            
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as comp_temp:
+            comp_temp.write(comparison_file.getvalue())
+            comp_temp_path = comp_temp.name
         
-        # Run comparison
-        results = comparator.run_comparison()
-        
-        # Generate output file
-        output_data, output_filename = comparator.generate_output()
-        
-        return results, output_data, output_filename
+        try:
+            # Create comparator instance
+            comparator = StudentDataComparator(log_level=logging.WARNING)
+            
+            # Load the data files
+            ai_data = comparator.load_ai_extractor_data(ai_temp_path)
+            comparison_data = comparator.load_comparison_data(comp_temp_path)
+            
+            # Run comparison with fuzzy threshold
+            results = comparator.compare_data(fuzzy_threshold=fuzzy_threshold)
+            
+            # Create output file
+            output_filename = f"validation_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            output_path = tempfile.mktemp(suffix=".xlsx")
+            
+            # Export results
+            comparator.export_results(output_path)
+            
+            # Read the output file
+            with open(output_path, 'rb') as f:
+                output_data = f.read()
+            
+            # Clean up temporary files
+            os.unlink(ai_temp_path)
+            os.unlink(comp_temp_path)
+            if os.path.exists(output_path):
+                os.unlink(output_path)
+            
+            # Convert results to a simplified format for display
+            matches = results.get('matches', [])
+            simplified_results = []
+            for match in matches[:max_results]:  # Limit results
+                simplified_results.append({
+                    'ai_student': match.get('ai_student_name', 'Unknown'),
+                    'comparison_student': match.get('comparison_student_name', 'Unknown'),
+                    'match_score': match.get('match_score', 0),
+                    'match_found': True
+                })
+            
+            return simplified_results, output_data, output_filename
+            
+        except Exception as e:
+            # Clean up temporary files in case of error
+            try:
+                os.unlink(ai_temp_path)
+                os.unlink(comp_temp_path)
+            except:
+                pass
+            raise e
         
     except Exception as e:
         st.error(f"Error during comparison: {str(e)}")
