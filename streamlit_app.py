@@ -2731,7 +2731,7 @@ def main():
     current_page = create_navigation_menu()
     
     # Custom Logo Section (shown on all pages) - Perfect centering
-    logo_path = "/Users/chaytonobando/Library/Mobile Documents/com~apple~CloudDocs/Python/Voigts Bus Service Logo.png"
+    logo_path = "Voigts Bus Service Logo.png"
     
     if os.path.exists(logo_path):
         # Read image and encode as base64 for inline display
