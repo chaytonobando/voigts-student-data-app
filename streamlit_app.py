@@ -3022,7 +3022,12 @@ def process_comparison(ai_file, comparison_file, fuzzy_threshold, max_results):
     """Process comparison between AI extracted data and comparison file"""
     try:
         # Import the comparison functionality
-        from student_data_comparator import StudentDataComparator
+        try:
+            from student_data_comparator import StudentDataComparator
+        except ImportError as import_error:
+            st.error(f"❌ StudentDataComparator module not available: {str(import_error)}")
+            return None, None, None
+        
         import tempfile
         import os
         
@@ -3037,20 +3042,29 @@ def process_comparison(ai_file, comparison_file, fuzzy_threshold, max_results):
         
         try:
             # Create comparator instance
+            st.info("🔄 Creating comparator instance...")
             comparator = StudentDataComparator(log_level=logging.WARNING)
             
             # Load the data files
+            st.info("🔄 Loading AI extractor data...")
             ai_data = comparator.load_ai_extractor_data(ai_temp_path)
+            st.info(f"✅ Loaded {len(ai_data) if ai_data else 0} AI records")
+            
+            st.info("🔄 Loading comparison data...")
             comparison_data = comparator.load_comparison_data(comp_temp_path)
+            st.info(f"✅ Loaded {len(comparison_data) if comparison_data else 0} comparison records")
             
             # Run comparison with fuzzy threshold
+            st.info(f"🔄 Running comparison with fuzzy threshold: {fuzzy_threshold}...")
             results = comparator.compare_data(fuzzy_threshold=fuzzy_threshold)
+            st.info(f"✅ Comparison completed with {len(results.get('matches', [])) if results else 0} matches")
             
             # Create output file
             output_filename = f"validation_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
             output_path = tempfile.mktemp(suffix=".xlsx")
             
             # Export results
+            st.info("🔄 Exporting results...")
             comparator.export_results(output_path)
             
             # Read the output file
@@ -3064,7 +3078,7 @@ def process_comparison(ai_file, comparison_file, fuzzy_threshold, max_results):
                 os.unlink(output_path)
             
             # Convert results to a simplified format for display
-            matches = results.get('matches', [])
+            matches = results.get('matches', []) if results else []
             simplified_results = []
             for match in matches[:max_results]:  # Limit results
                 simplified_results.append({
@@ -3074,6 +3088,7 @@ def process_comparison(ai_file, comparison_file, fuzzy_threshold, max_results):
                     'match_found': True
                 })
             
+            st.info(f"✅ Processed {len(simplified_results)} validation results")
             return simplified_results, output_data, output_filename
             
         except Exception as e:
@@ -3083,10 +3098,17 @@ def process_comparison(ai_file, comparison_file, fuzzy_threshold, max_results):
                 os.unlink(comp_temp_path)
             except:
                 pass
+            st.error(f"❌ Error during processing: {str(e)}")
+            st.error(f"❌ Error type: {type(e).__name__}")
+            import traceback
+            st.error(f"❌ Traceback: {traceback.format_exc()}")
             raise e
         
     except Exception as e:
-        st.error(f"Error during comparison: {str(e)}")
+        st.error(f"❌ Fatal error during comparison: {str(e)}")
+        st.error(f"❌ Error type: {type(e).__name__}")
+        import traceback
+        st.error(f"❌ Traceback: {traceback.format_exc()}")
         return None, None, None
 
 def display_validation_results(results, output_data, output_filename, title="Validation Results"):
