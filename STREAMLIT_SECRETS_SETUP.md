@@ -20,13 +20,17 @@ Copy and paste this configuration into the Streamlit Cloud secrets editor:
 
 ```toml
 [azure]
-endpoint = "https://rocoristudents.cognitiveservices.azure.com/"
-api_key = "CeONvzJqeNhNBVaEJQW42seJ1UwOYdCebflbbdrGdRMMW5k30aeWJQQJ99BGACYeBjFXJ3w3AAALACOGjt98"
+endpoint = "YOUR_AZURE_ENDPOINT_HERE"
+api_key = "YOUR_AZURE_API_KEY_HERE"
 
 [app]
 title = "Voigts Student Opt-In Data Management Suite"
 description = "Professional transportation data processing for school districts"
 ```
+
+**⚠️ IMPORTANT:** Replace the placeholder values above with your actual Azure credentials:
+- `YOUR_AZURE_ENDPOINT_HERE` → Your actual Azure endpoint URL
+- `YOUR_AZURE_API_KEY_HERE` → Your actual Azure API key
 
 ### 4. Save and Deploy
 1. Click **"Save"** in the Streamlit Cloud secrets editor
