@@ -489,8 +489,9 @@ class TraversaDataProcessor:
             
             # Add specific AI columns that should be preserved
             ai_columns_to_preserve = [
-                'Please select one of the following *',
-                'When do you need transportation (check all that apply)'
+                'Transportation needs, AM, PM, Both,  or None',
+                'AM Transportation from Home, Daycare or None',
+                'PM Transportation to Home, Daycare or None'
             ]
             
             for ai_col in ai_columns_to_preserve:
@@ -509,11 +510,11 @@ class TraversaDataProcessor:
         traversa_ready = traversa_ready.reset_index(drop=True)
         
         # Add transportation analysis if the column exists
-        if 'When do you need transportation (check all that apply)' in traversa_ready.columns:
+        if 'Transportation needs, AM, PM, Both,  or None' in traversa_ready.columns:
             self.logger.info("🚌 Analyzing transportation needs for sorting and highlighting...")
             
             # Add transportation category column
-            traversa_ready['Transportation_Category'] = traversa_ready['When do you need transportation (check all that apply)'].apply(
+            traversa_ready['Transportation_Category'] = traversa_ready['Transportation needs, AM, PM, Both,  or None'].apply(
                 self._analyze_transportation_needs
             )
             
@@ -725,13 +726,13 @@ class TraversaDataProcessor:
                                 break
                 
                 # Apply transportation-specific highlighting
-                if 'When do you need transportation (check all that apply)' in [cell.value for cell in sheet[1]]:
+                if 'Transportation needs, AM, PM, Both,  or None' in [cell.value for cell in sheet[1]]:
                     self.logger.info("🎨 Applying transportation-specific color coding...")
                     
                     # Find transportation column
                     transport_col_idx = None
                     for idx, cell in enumerate(sheet[1], 1):
-                        if cell.value == 'When do you need transportation (check all that apply)':
+                        if cell.value == 'Transportation needs, AM, PM, Both,  or None':
                             transport_col_idx = idx
                             break
                     
