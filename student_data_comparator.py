@@ -340,15 +340,29 @@ class StudentDataComparator:
         # Auto-detect name columns if not provided
         if ai_name_columns is None:
             detected_ai_columns = self.detect_name_columns(self.ai_extractor_data)
-            # Prioritize primary student name column
+            # Prioritize student name columns over parent name columns
             ai_name_columns = []
+            
+            # First, look for exact student name column
             for col in detected_ai_columns:
                 col_lower = str(col).lower()
                 if 'student name' in col_lower and '*' not in col_lower:
                     ai_name_columns = [col]  # Use only this column
                     break
-            if not ai_name_columns and detected_ai_columns:
-                ai_name_columns = [detected_ai_columns[0]]  # Use first detected if no perfect match
+            
+            # If no student name column, prioritize First Name/Last Name over Parent names
+            if not ai_name_columns:
+                student_first_last = []
+                for col in detected_ai_columns:
+                    col_lower = str(col).lower()
+                    # Prefer columns without "parent" in the name
+                    if 'parent' not in col_lower and ('first name' in col_lower or 'last name' in col_lower):
+                        student_first_last.append(col)
+                
+                if student_first_last:
+                    ai_name_columns = student_first_last
+                elif detected_ai_columns:
+                    ai_name_columns = [detected_ai_columns[0]]  # Fallback to first detected
         
         if comparison_name_columns is None:
             comparison_name_columns = self.detect_name_columns(self.comparison_data)
