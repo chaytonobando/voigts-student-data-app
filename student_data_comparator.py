@@ -64,17 +64,58 @@ class StudentDataComparator:
         self.logger = logging.getLogger(__name__)
         self.logger.info("🎓 Student Data Comparator initialized")
     
-    def load_ai_extractor_data(self, file_path: str, sheet_name: str = "Extracted Data") -> pd.DataFrame:
-        """Load data from AI PDF extractor output"""
+    def load_ai_extractor_data(self, file_path: str, sheet_name: str = None) -> pd.DataFrame:
+        """Load data from AI PDF extractor output with automatic sheet detection"""
         self.logger.info(f"📊 Loading AI extractor data from: {file_path}")
         
         try:
             if not os.path.exists(file_path):
                 raise FileNotFoundError(f"AI extractor file not found: {file_path}")
             
-            # Load the specified sheet
-            self.ai_extractor_data = pd.read_excel(file_path, sheet_name=sheet_name)
-            self.logger.info(f"✅ Loaded {len(self.ai_extractor_data)} rows from AI extractor")
+            # Get all available sheets first
+            excel_file = pd.ExcelFile(file_path)
+            available_sheets = excel_file.sheet_names
+            self.logger.info(f"📄 Available sheets: {available_sheets}")
+            
+            sheet_to_use = None
+            
+            # If sheet name is specified, try to use it
+            if sheet_name:
+                if sheet_name in available_sheets:
+                    sheet_to_use = sheet_name
+                    self.logger.info(f"✅ Using specified sheet: {sheet_name}")
+                else:
+                    self.logger.warning(f"⚠️ Specified sheet '{sheet_name}' not found. Available sheets: {available_sheets}")
+            
+            # If no sheet specified or specified sheet not found, auto-detect
+            if not sheet_to_use:
+                # Try default "Extracted Data" first
+                if "Extracted Data" in available_sheets:
+                    sheet_to_use = "Extracted Data"
+                    self.logger.info(f"✅ Using default 'Extracted Data' sheet")
+                else:
+                    # Priority keywords for AI extracted data
+                    keywords = ['data', 'student', 'extract', 'form', 'opt', 'sheet1']
+                    
+                    # Try to find sheet with relevant keywords
+                    for keyword in keywords:
+                        for sheet in available_sheets:
+                            if keyword.lower() in sheet.lower():
+                                sheet_to_use = sheet
+                                self.logger.info(f"✅ Auto-detected sheet with keyword '{keyword}': {sheet}")
+                                break
+                        if sheet_to_use:
+                            break
+                    
+                    # If no keyword match, use first sheet
+                    if not sheet_to_use:
+                        sheet_to_use = available_sheets[0]
+                        self.logger.info(f"🔄 Using first available sheet: {sheet_to_use}")
+            
+            # Load the selected sheet
+            self.ai_extractor_data = pd.read_excel(file_path, sheet_name=sheet_to_use)
+            
+            self.logger.info(f"✅ Loaded {len(self.ai_extractor_data)} rows from AI extractor (sheet: {sheet_to_use})")
             self.logger.info(f"📋 Columns: {list(self.ai_extractor_data.columns)}")
             
             return self.ai_extractor_data
@@ -84,20 +125,52 @@ class StudentDataComparator:
             raise
     
     def load_comparison_data(self, file_path: str, sheet_name: str = None) -> pd.DataFrame:
-        """Load comparison Excel file"""
+        """Load comparison Excel file with automatic sheet detection"""
         self.logger.info(f"📊 Loading comparison data from: {file_path}")
         
         try:
             if not os.path.exists(file_path):
                 raise FileNotFoundError(f"Comparison file not found: {file_path}")
             
-            # If no sheet name specified, use the first sheet
-            if sheet_name is None:
-                self.comparison_data = pd.read_excel(file_path)
-            else:
-                self.comparison_data = pd.read_excel(file_path, sheet_name=sheet_name)
+            # Get all available sheets first
+            excel_file = pd.ExcelFile(file_path)
+            available_sheets = excel_file.sheet_names
+            self.logger.info(f"📄 Available sheets: {available_sheets}")
             
-            self.logger.info(f"✅ Loaded {len(self.comparison_data)} rows from comparison file")
+            sheet_to_use = None
+            
+            # If sheet name is specified, try to use it
+            if sheet_name:
+                if sheet_name in available_sheets:
+                    sheet_to_use = sheet_name
+                    self.logger.info(f"✅ Using specified sheet: {sheet_name}")
+                else:
+                    self.logger.warning(f"⚠️ Specified sheet '{sheet_name}' not found. Available sheets: {available_sheets}")
+            
+            # If no sheet specified or specified sheet not found, auto-detect
+            if not sheet_to_use:
+                # Priority keywords for comparison data (broader than AI data since templates vary more)
+                keywords = ['template', 'data', 'student', 'form', 'comparison', 'traversa', 'opt', 'sheet1']
+                
+                # Try to find sheet with relevant keywords
+                for keyword in keywords:
+                    for sheet in available_sheets:
+                        if keyword.lower() in sheet.lower():
+                            sheet_to_use = sheet
+                            self.logger.info(f"✅ Auto-detected sheet with keyword '{keyword}': {sheet}")
+                            break
+                    if sheet_to_use:
+                        break
+                
+                # If no keyword match, use first sheet
+                if not sheet_to_use:
+                    sheet_to_use = available_sheets[0]
+                    self.logger.info(f"🔄 Using first available sheet: {sheet_to_use}")
+            
+            # Load the selected sheet
+            self.comparison_data = pd.read_excel(file_path, sheet_name=sheet_to_use)
+            
+            self.logger.info(f"✅ Loaded {len(self.comparison_data)} rows from comparison file (sheet: {sheet_to_use})")
             self.logger.info(f"📋 Columns: {list(self.comparison_data.columns)}")
             
             return self.comparison_data
@@ -203,41 +276,7 @@ class StudentDataComparator:
         """Create a combined name from row data, handling first/last name columns intelligently"""
         combined_parts = []
         
-        # Check if we have both first and last name columns
-        first_name_col = None
-        last_name_col = None
-        other_name_cols = []
-        
         for col in name_columns:
-            col_lower = str(col).lower()
-            if 'first' in col_lower and ('name' in col_lower or col_lower.strip() == 'first'):
-                first_name_col = col
-            elif 'last' in col_lower and ('name' in col_lower or col_lower.strip() == 'last'):
-                last_name_col = col
-            else:
-                other_name_cols.append(col)
-        
-        # If we have first and last name columns, combine them properly
-        if first_name_col and last_name_col:
-            first_name = ""
-            last_name = ""
-            
-            if pd.notna(row[first_name_col]) and str(row[first_name_col]).strip():
-                first_name = self.normalize_name(str(row[first_name_col]).strip())
-            
-            if pd.notna(row[last_name_col]) and str(row[last_name_col]).strip():
-                last_name = self.normalize_name(str(row[last_name_col]).strip())
-            
-            # Combine first and last name
-            if first_name and last_name:
-                combined_parts.append(f"{first_name} {last_name}")
-            elif first_name:
-                combined_parts.append(first_name)
-            elif last_name:
-                combined_parts.append(last_name)
-        
-        # Add other name columns
-        for col in other_name_cols:
             if pd.notna(row[col]) and str(row[col]).strip():
                 col_value = str(row[col]).strip()
                 
@@ -312,40 +351,11 @@ class StudentDataComparator:
                 ai_name_columns = [detected_ai_columns[0]]  # Use first detected if no perfect match
         
         if comparison_name_columns is None:
-            detected_comp_columns = self.detect_name_columns(self.comparison_data)
-            # Handle separate first/last name columns by combining them
-            comparison_name_columns = detected_comp_columns
-            
-            # If we have First Name and Last Name columns, we'll combine them in _create_combined_name
-            self.logger.info(f"🔍 Detected comparison columns: {detected_comp_columns}")
+            comparison_name_columns = self.detect_name_columns(self.comparison_data)
         
         if not ai_name_columns or not comparison_name_columns:
             self.logger.warning("⚠️ Could not detect name columns automatically")
-            # Try fallback column detection
-            if not ai_name_columns:
-                # Look for any column containing "name"
-                for col in self.ai_extractor_data.columns:
-                    if 'name' in str(col).lower():
-                        ai_name_columns = [col]
-                        break
-            
-            if not comparison_name_columns:
-                # For comparison data, try to find First Name and Last Name
-                first_name_col = None
-                last_name_col = None
-                for col in self.comparison_data.columns:
-                    col_lower = str(col).lower()
-                    if 'first' in col_lower and 'name' in col_lower:
-                        first_name_col = col
-                    elif 'last' in col_lower and 'name' in col_lower:
-                        last_name_col = col
-                
-                if first_name_col and last_name_col:
-                    comparison_name_columns = [first_name_col, last_name_col]
-                    self.logger.info(f"🔍 Using fallback: First/Last name columns: {comparison_name_columns}")
-            
-            if not ai_name_columns or not comparison_name_columns:
-                return {"error": "No name columns detected", "matches": []}
+            return {"error": "No name columns detected"}
         
         self.logger.info(f"📝 Using AI extractor name columns: {ai_name_columns}")
         self.logger.info(f"📝 Using comparison name columns: {comparison_name_columns}")
@@ -439,17 +449,7 @@ class StudentDataComparator:
             'matches_found': len(self.matches),
             'unmatched_ai': len(self.unmatched_ai),
             'unmatched_comparison': len(self.unmatched_comparison),
-            'match_rate': len(self.matches) / len(ai_names) * 100 if ai_names else 0,
-            'matches': [  # Add this for streamlit_app.py compatibility
-                {
-                    'ai_student_name': match['ai_name'],
-                    'comparison_student_name': match['comparison_name'],
-                    'match_score': match['match_score'],
-                    'ai_data': match['ai_data'],
-                    'comparison_data': match['comparison_data']
-                }
-                for match in self.matches
-            ]
+            'match_rate': len(self.matches) / len(ai_names) * 100 if ai_names else 0
         }
         
         self.logger.info(f"✅ Comparison complete:")
