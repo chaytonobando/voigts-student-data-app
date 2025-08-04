@@ -54,13 +54,15 @@ This guide will help you deploy the Voigts Student Data Processing Suite to Stre
 2. **Add the following secrets**:
    ```toml
    [azure]
-   endpoint = "https://rocoristudents.cognitiveservices.azure.com/"
-   api_key = "CeONvzJqeNhNBVaEJQW42seJ1UwOYdCebflbbdrGdRMMW5k30aeWJQQJ99BGACYeBjFXJ3w3AAALACOGjt98"
+   endpoint = "YOUR_AZURE_ENDPOINT_HERE"
+   api_key = "YOUR_AZURE_API_KEY_HERE"
 
    [app]
    title = "Voigts Student Opt-In Data Management Suite"
    description = "Professional transportation data processing for school districts"
    ```
+
+   **⚠️ IMPORTANT:** Replace the placeholder values with your actual Azure credentials
 
 3. **Save secrets** and the app will automatically restart
 
