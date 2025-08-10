@@ -3343,21 +3343,53 @@ def process_comparison(ai_file, comparison_file, fuzzy_threshold, max_results):
             # Add debugging info about the data
             if ai_data is not None and not ai_data.empty:
                 st.info(f"🔍 AI data columns: {list(ai_data.columns)}")
-                if 'Student Name' in ai_data.columns:
-                    st.info(f"🔍 Sample AI names: {ai_data['Student Name'].head(3).tolist()}")
-                elif 'Name' in ai_data.columns:
-                    st.info(f"🔍 Sample AI names: {ai_data['Name'].head(3).tolist()}")
-                else:
-                    st.info(f"🔍 AI data first few columns: {ai_data.iloc[:3, :3].to_dict()}")
+                st.info(f"🔍 AI data shape: {ai_data.shape}")
+                
+                # Try multiple column names to find student names
+                name_columns_to_try = ['Student Name', 'Name', 'student_name', 'Full Name', 'First Name', 'Last Name']
+                found_names = []
+                for col in name_columns_to_try:
+                    if col in ai_data.columns:
+                        sample_names = ai_data[col].dropna().head(3).tolist()
+                        if sample_names:
+                            found_names.extend(sample_names)
+                            st.info(f"🔍 Sample AI names from '{col}': {sample_names}")
+                
+                if not found_names:
+                    # Show first row of data to help debug
+                    first_row = ai_data.iloc[0].to_dict() if len(ai_data) > 0 else {}
+                    st.warning(f"⚠️ No obvious name columns found in AI data. First row: {first_row}")
+            else:
+                st.error("❌ AI data is empty or None")
             
             if comparison_data is not None and not comparison_data.empty:
                 st.info(f"🔍 Comparison data columns: {list(comparison_data.columns)}")
-                if 'Student Name' in comparison_data.columns:
-                    st.info(f"🔍 Sample comparison names: {comparison_data['Student Name'].head(3).tolist()}")
-                elif 'Name' in comparison_data.columns:
-                    st.info(f"🔍 Sample comparison names: {comparison_data['Name'].head(3).tolist()}")
-                else:
-                    st.info(f"🔍 Comparison data first few columns: {comparison_data.iloc[:3, :3].to_dict()}")
+                st.info(f"🔍 Comparison data shape: {comparison_data.shape}")
+                
+                # Try multiple column names to find student names
+                name_columns_to_try = ['Student Name', 'Name', 'student_name', 'Full Name', 'First Name', 'Last Name']
+                found_names = []
+                for col in name_columns_to_try:
+                    if col in comparison_data.columns:
+                        sample_names = comparison_data[col].dropna().head(3).tolist()
+                        if sample_names:
+                            found_names.extend(sample_names)
+                            st.info(f"🔍 Sample comparison names from '{col}': {sample_names}")
+                
+                if not found_names:
+                    # Show first row of data to help debug
+                    first_row = comparison_data.iloc[0].to_dict() if len(comparison_data) > 0 else {}
+                    st.warning(f"⚠️ No obvious name columns found in comparison data. First row: {first_row}")
+            else:
+                st.error("❌ Comparison data is empty or None")
+            
+            # Add a check for compatible data before comparison
+            if ai_data is None or ai_data.empty:
+                st.error("❌ Cannot proceed: AI data is empty")
+                return None, None, None
+            if comparison_data is None or comparison_data.empty:
+                st.error("❌ Cannot proceed: Comparison data is empty")
+                return None, None, None
             
             results = comparator.compare_data(fuzzy_threshold=fuzzy_threshold)
             
@@ -3369,13 +3401,41 @@ def process_comparison(ai_file, comparison_file, fuzzy_threshold, max_results):
             matches_count = len(results.get('matches', [])) if isinstance(results, dict) else 0
             st.info(f"✅ Comparison completed with {matches_count} matches")
             
-            # Add debugging for zero matches
+            # Add comprehensive debugging for zero matches
             if matches_count == 0:
-                st.warning("⚠️ No matches found - this might indicate:")
-                st.warning("  • Column name mismatch between files")
-                st.warning("  • Different name formats (Last, First vs First Last)")
-                st.warning("  • Fuzzy threshold too strict (try lowering it)")
-                st.warning("  • No overlapping student names between datasets")
+                st.warning("⚠️ **No matches found!** Potential causes and solutions:")
+                
+                # Get comparison results for debugging
+                total_ai = results.get('total_ai_students', 0)
+                total_comp = results.get('total_comparison_students', 0)
+                
+                if total_ai == 0:
+                    st.error("   • **AI data has no valid student names** - Check AI extraction results")
+                elif total_comp == 0:
+                    st.error("   • **Comparison data has no valid student names** - Check comparison file")
+                else:
+                    st.warning(f"   • Found {total_ai} AI students and {total_comp} comparison students, but no matches")
+                    st.warning("   • **Column name mismatch** - Check if name columns exist in both files")
+                    st.warning("   • **Different name formats** - AI: 'First Last' vs Comparison: 'Last, First'")
+                    st.warning(f"   • **Fuzzy threshold too strict** - Current: {fuzzy_threshold}%, try lowering to 70%")
+                    st.warning("   • **No overlapping students** - These may be completely different datasets")
+                
+                # Provide actionable recommendations
+                st.info("💡 **Recommendations:**")
+                st.info("   1. Check that both files contain student names")
+                st.info("   2. Verify name column headers are similar (e.g., 'Student Name', 'Name')")
+                st.info("   3. Try lowering the matching sensitivity to 70-75%")
+                st.info("   4. Check if names are in the same format in both files")
+                
+                # Show comparison between detected columns
+                if ai_data is not None and comparison_data is not None:
+                    st.info("🔍 **Column Comparison:**")
+                    ai_cols = [col for col in ai_data.columns if 'name' in str(col).lower()]
+                    comp_cols = [col for col in comparison_data.columns if 'name' in str(col).lower()]
+                    st.info(f"   AI name-like columns: {ai_cols}")
+                    st.info(f"   Comparison name-like columns: {comp_cols}")
+            else:
+                st.success(f"🎉 Found {matches_count} successful matches!")
             
             # Create output file
             output_filename = f"validation_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
@@ -3409,24 +3469,30 @@ def process_comparison(ai_file, comparison_file, fuzzy_threshold, max_results):
                 os.unlink(output_path)
             
             # Convert results to a simplified format for display
-            matches = results.get('matches', []) if results else []
+            # Get the actual matches from the comparator instance
+            matches = comparator.matches if hasattr(comparator, 'matches') else []
             simplified_results = []
             for match in matches[:max_results]:  # Limit results
                 simplified_results.append({
-                    'ai_student': match.get('ai_student_name', 'Unknown'),
-                    'comparison_student': match.get('comparison_student_name', 'Unknown'),
+                    'ai_student': match.get('ai_name', 'Unknown'),
+                    'comparison_student': match.get('comparison_name', 'Unknown'),
                     'match_score': match.get('match_score', 0),
                     'match_found': True
                 })
             
-            # Handle case where no matches found
+            # Handle case where no matches found but provide useful summary
             if len(simplified_results) == 0:
-                st.info("ℹ️ No matches found - creating summary report with recommendations")
+                st.info("ℹ️ Creating diagnostic report with zero matches")
                 simplified_results = [{
-                    'ai_student': 'No matches found',
-                    'comparison_student': 'Check column names and data format',
+                    'ai_student': f"No matches found ({results.get('total_ai_students', 0)} AI students processed)",
+                    'comparison_student': f"No matches found ({results.get('total_comparison_students', 0)} comparison students processed)",
                     'match_score': 0,
-                    'match_found': False
+                    'match_found': False,
+                    'diagnostic_info': {
+                        'ai_students': results.get('total_ai_students', 0),
+                        'comparison_students': results.get('total_comparison_students', 0),
+                        'fuzzy_threshold': fuzzy_threshold
+                    }
                 }]
             
             st.info(f"✅ Processed {len(simplified_results)} validation results")

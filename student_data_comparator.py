@@ -215,7 +215,8 @@ class StudentDataComparator:
                 if indicator in col_lower and col not in potential_columns:
                     # Verify this column contains actual name-like data
                     sample_values = df[col].dropna().head(5).astype(str)
-                    if any(val.replace(' ', '').replace('.', '').replace('*', '').isalpha() and len(val.strip()) > 1 for val in sample_values):
+                    # Check if values look like names - handle common name formats including "Last, First"
+                    if any(self._is_name_like(val) for val in sample_values):
                         potential_columns.append(col)
                         break
         
@@ -236,15 +237,49 @@ class StudentDataComparator:
             for col in df.columns:
                 if df[col].dtype == 'object':  # String/object columns
                     sample_values = df[col].dropna().head(10).astype(str)
-                    # Check if values look like names (contain letters, reasonable length)
-                    name_like_count = sum(1 for val in sample_values 
-                                        if val.replace(' ', '').replace('.', '').replace('*', '').isalpha() 
-                                        and 2 <= len(val.strip()) <= 50)
+                    # Check if values look like names using improved detection
+                    name_like_count = sum(1 for val in sample_values if self._is_name_like(val))
                     if name_like_count >= len(sample_values) * 0.7:  # 70% of samples look like names
                         potential_columns.append(col)
         
         self.logger.info(f"🔍 Detected potential name columns: {potential_columns}")
         return potential_columns
+    
+    def _is_name_like(self, val: str) -> bool:
+        """Check if a value looks like a name, handling various formats"""
+        if not val or len(val.strip()) < 2 or len(val.strip()) > 100:
+            return False
+        
+        val_str = str(val).strip()
+        
+        # Remove common separators and check if what remains is mostly alphabetic
+        cleaned = val_str.replace(' ', '').replace(',', '').replace('.', '').replace('-', '').replace("'", '').replace('*', '')
+        
+        # Must contain mostly letters
+        if not cleaned.isalpha():
+            return False
+        
+        # Common patterns for names
+        # "Last, First" format
+        if ',' in val_str:
+            parts = val_str.split(',')
+            if len(parts) == 2:
+                last, first = parts
+                return (last.strip().replace(' ', '').isalpha() and 
+                       first.strip().replace(' ', '').isalpha() and
+                       len(last.strip()) > 0 and len(first.strip()) > 0)
+        
+        # "First Last" or "First Middle Last" format
+        words = val_str.split()
+        if len(words) >= 1:
+            # All words should be mostly alphabetic
+            for word in words:
+                word_clean = word.replace('.', '').replace("'", '').replace('-', '')
+                if not word_clean.isalpha() or len(word_clean) < 1:
+                    return False
+            return True
+        
+        return False
     
     def normalize_name(self, name: str) -> str:
         """Normalize a name for better matching"""
