@@ -22,6 +22,8 @@ import base64
 from pathlib import Path
 import zipfile
 import logging
+import traceback
+import json
 
 # Import student data comparator if available
 try:
@@ -39,7 +41,6 @@ try:
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
     from reportlab.lib.units import inch
     from reportlab.lib import colors
-    from io import BytesIO
     DOCX_TO_PDF_AVAILABLE = True
 except ImportError:
     DOCX_TO_PDF_AVAILABLE = False
@@ -1141,7 +1142,7 @@ def convert_docx_to_pdf_silent(docx_file, output_dir):
     """Convert a DOCX file to PDF using python-docx and reportlab (silent, no Word app needed)"""
     try:
         # Read the DOCX document
-        docx_data = BytesIO(docx_file.read())
+        docx_data = io.BytesIO(docx_file.read())
         document = Document(docx_data)
         
         # Generate output PDF path
@@ -1149,7 +1150,7 @@ def convert_docx_to_pdf_silent(docx_file, output_dir):
         output_pdf_path = os.path.join(output_dir, pdf_filename)
         
         # Create PDF using ReportLab
-        pdf_buffer = BytesIO()
+        pdf_buffer = io.BytesIO()
         doc = SimpleDocTemplate(pdf_buffer, pagesize=letter, 
                               rightMargin=72, leftMargin=72, 
                               topMargin=72, bottomMargin=18)
@@ -1256,16 +1257,6 @@ def convert_docx_to_pdf(docx_file, output_dir):
         return convert_docx_to_pdf_fallback(docx_file, output_dir)
     else:
         raise Exception("No conversion method available. Please install python-docx and reportlab, or docx2pdf.")
-    """Create a ZIP file containing multiple PDFs"""
-    zip_buffer = io.BytesIO()
-    
-    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-        for file_path in file_paths:
-            if os.path.exists(file_path):
-                zip_file.write(file_path, os.path.basename(file_path))
-    
-    zip_buffer.seek(0)
-    return zip_buffer.getvalue()
 
 def create_download_zip(file_paths, zip_name):
     """Create a ZIP file containing multiple PDFs"""
@@ -1278,30 +1269,6 @@ def create_download_zip(file_paths, zip_name):
     
     zip_buffer.seek(0)
     return zip_buffer.getvalue()
-    """Word to PDF conversion page with actual functionality"""
-    st.markdown('<h1 class="main-header"><span class="emoji-icon">📄</span>Word to PDF Converter</h1>', unsafe_allow_html=True)
-    st.markdown('<p class="subtitle">Convert Word documents to PDF format for processing</p>', unsafe_allow_html=True)
-    
-    # Check if docx conversion is available
-    if not DOCX_TO_PDF_AVAILABLE and not DOCX2PDF_FALLBACK:
-        st.error("❌ **Word to PDF conversion not available**")
-        st.markdown("""
-        To use this feature, please install the required dependencies:
-        ```bash
-        pip install python-docx reportlab
-        ```
-        Or alternatively:
-        ```bash
-        pip install docx2pdf
-        ```
-        """)
-        return
-    
-    # Display conversion method being used
-    if DOCX_TO_PDF_AVAILABLE:
-        st.success("✅ **Silent conversion enabled** - No Word application required!")
-    elif DOCX2PDF_FALLBACK:
-        st.warning("⚠️ **System Word conversion** - May require permission prompts")
 
 def show_word_to_pdf():
     """Word to PDF conversion page with actual functionality"""
@@ -1580,9 +1547,6 @@ def extract_data_from_pdfs(pdf_files, progress_callback=None, model_id="auto", e
         filename = f"extracted_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
         
         try:
-            import io
-            import pandas as pd
-            
             # Create Excel file with extracted data
             output = io.BytesIO()
             
@@ -1784,7 +1748,6 @@ def show_pdf_extraction():
             
             if uploaded_models_file:
                 try:
-                    import json
                     models_data = json.load(uploaded_models_file)
                     
                     if st.button("📥 Import Models"):
@@ -1812,7 +1775,6 @@ def show_pdf_extraction():
             
             if models_json and st.button("📥 Import from JSON"):
                 try:
-                    import json
                     models_data = json.loads(models_json)
                     
                     if 'custom_models' not in st.session_state:
@@ -1833,7 +1795,6 @@ def show_pdf_extraction():
             st.markdown("**Export Models:**")
             
             if 'custom_models' in st.session_state and st.session_state.custom_models:
-                import json
                 models_json = json.dumps(st.session_state.custom_models, indent=2)
                 
                 st.download_button(
@@ -2275,7 +2236,6 @@ def show_data_validation():
                 # Sheet selection for source
                 if source_excel:
                     try:
-                        import pandas as pd
                         xl_file = pd.ExcelFile(source_excel)
                         source_sheet = st.selectbox(
                             "Select source sheet:",
@@ -2308,7 +2268,6 @@ def show_data_validation():
                 # Sheet selection for target
                 if target_excel:
                     try:
-                        import pandas as pd
                         xl_file = pd.ExcelFile(target_excel)
                         target_sheet = st.selectbox(
                             "Select target sheet:",
@@ -3225,14 +3184,12 @@ def process_comparison(ai_file, comparison_file, fuzzy_threshold, max_results):
                 pass
             st.error(f"❌ Error during processing: {str(e)}")
             st.error(f"❌ Error type: {type(e).__name__}")
-            import traceback
             st.error(f"❌ Traceback: {traceback.format_exc()}")
             raise e
         
     except Exception as e:
         st.error(f"❌ Fatal error during comparison: {str(e)}")
         st.error(f"❌ Error type: {type(e).__name__}")
-        import traceback
         st.error(f"❌ Traceback: {traceback.format_exc()}")
         return None, None, None
 
@@ -3300,8 +3257,6 @@ def process_general_comparison(source_excel, target_excel, source_sheet, target_
                              comparison_mode, case_sensitive):
     """Process general Excel file comparison"""
     try:
-        import pandas as pd
-        
         # Read the Excel files
         source_df = pd.read_excel(source_excel, sheet_name=source_sheet)
         target_df = pd.read_excel(target_excel, sheet_name=target_sheet)
@@ -3430,8 +3385,7 @@ def execute_automated_workflow(word_files, comparison_file, ai_model_id, ai_conf
             ai_files = []
             for pdf_file in pdf_files:
                 # Create file-like object from bytes
-                from io import BytesIO
-                pdf_bytes = BytesIO(pdf_file['data'])
+                pdf_bytes = io.BytesIO(pdf_file['data'])
                 pdf_bytes.name = pdf_file['name']
                 ai_files.append(pdf_bytes)
             
@@ -3487,7 +3441,7 @@ def execute_automated_workflow(word_files, comparison_file, ai_model_id, ai_conf
                 validation_filename = f"validation_skipped_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
             else:
                 # Create AI file object for validation
-                ai_file_obj = BytesIO(excel_data)
+                ai_file_obj = io.BytesIO(excel_data)
                 ai_file_obj.name = ai_filename
                 
                 val_status.text("🔍 Comparing AI data with student database...")
@@ -3701,7 +3655,6 @@ def display_workflow_results(workflow_state, workflow_report, include_intermedia
     
     with download_col3:
         # Comprehensive workflow report
-        import json
         report_json = json.dumps(workflow_report, indent=2, default=str)
         st.download_button(
             label="📋 Download Workflow Report",
