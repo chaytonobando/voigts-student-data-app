@@ -1141,7 +1141,8 @@ def show_diagnostics():
 def convert_docx_to_pdf_silent(docx_file, output_dir):
     """Convert a DOCX file to PDF using python-docx and reportlab (silent, no Word app needed)"""
     try:
-        # Read the DOCX document
+        # Reset file pointer and read the DOCX document
+        docx_file.seek(0)
         docx_data = io.BytesIO(docx_file.read())
         document = Document(docx_data)
         
@@ -1150,8 +1151,7 @@ def convert_docx_to_pdf_silent(docx_file, output_dir):
         output_pdf_path = os.path.join(output_dir, pdf_filename)
         
         # Create PDF using ReportLab
-        pdf_buffer = io.BytesIO()
-        doc = SimpleDocTemplate(pdf_buffer, pagesize=letter, 
+        doc = SimpleDocTemplate(output_pdf_path, pagesize=letter, 
                               rightMargin=72, leftMargin=72, 
                               topMargin=72, bottomMargin=18)
         
@@ -1163,46 +1163,93 @@ def convert_docx_to_pdf_silent(docx_file, output_dir):
         # Story array to hold document content
         story = []
         
+        # Add a title if the document doesn't have content
+        if not document.paragraphs and not document.tables:
+            story.append(Paragraph("Converted Document", heading_style))
+            story.append(Spacer(1, 12))
+        
         # Process each paragraph in the Word document
         for paragraph in document.paragraphs:
             if paragraph.text.strip():
-                # Determine if it's a heading based on paragraph style
-                if paragraph.style.name.startswith('Heading'):
-                    story.append(Paragraph(paragraph.text, heading_style))
-                else:
-                    story.append(Paragraph(paragraph.text, normal_style))
-                story.append(Spacer(1, 12))
+                try:
+                    # Clean up text for PDF (remove problematic characters)
+                    clean_text = paragraph.text.strip().replace('\x00', '').replace('\r', ' ').replace('\n', ' ')
+                    
+                    # Determine if it's a heading based on paragraph style
+                    if hasattr(paragraph.style, 'name') and paragraph.style.name.startswith('Heading'):
+                        story.append(Paragraph(clean_text, heading_style))
+                    else:
+                        story.append(Paragraph(clean_text, normal_style))
+                    story.append(Spacer(1, 12))
+                except Exception as para_error:
+                    # If paragraph processing fails, add as plain text
+                    try:
+                        story.append(Paragraph(str(paragraph.text), normal_style))
+                        story.append(Spacer(1, 12))
+                    except:
+                        continue  # Skip problematic paragraphs
         
         # Process tables if any
         for table in document.tables:
-            table_data = []
-            for row in table.rows:
-                row_data = []
-                for cell in row.cells:
-                    row_data.append(cell.text.strip())
-                table_data.append(row_data)
+            try:
+                table_data = []
+                for row in table.rows:
+                    row_data = []
+                    for cell in row.cells:
+                        cell_text = cell.text.strip().replace('\x00', '').replace('\r', ' ').replace('\n', ' ')
+                        row_data.append(cell_text[:100])  # Limit cell text length
+                    if any(row_data):  # Only add non-empty rows
+                        table_data.append(row_data)
+                
+                if table_data and len(table_data) > 0:
+                    # Create table with proper column widths
+                    pdf_table = Table(table_data)
+                    pdf_table.setStyle(TableStyle([
+                        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                        ('FONTSIZE', (0, 0), (-1, 0), 10),
+                        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                        ('FONTSIZE', (0, 1), (-1, -1), 9),
+                    ]))
+                    story.append(pdf_table)
+                    story.append(Spacer(1, 12))
+            except Exception as table_error:
+                # If table processing fails, skip it
+                continue
+        
+        # If no content was added, add a placeholder
+        if not story:
+            story.append(Paragraph("This document appears to be empty or could not be processed.", normal_style))
+        
+        # Build PDF with error handling
+        try:
+            doc.build(story)
+        except Exception as build_error:
+            # If building fails, create a simple text-based PDF
+            simple_doc = SimpleDocTemplate(output_pdf_path, pagesize=letter)
+            simple_story = [
+                Paragraph("Document Conversion", heading_style),
+                Spacer(1, 12),
+                Paragraph(f"Original file: {docx_file.name}", normal_style),
+                Spacer(1, 12),
+                Paragraph("This document was converted from Word format but may have formatting issues.", normal_style)
+            ]
             
-            if table_data:
-                pdf_table = Table(table_data)
-                pdf_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 14),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                    ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
-                ]))
-                story.append(pdf_table)
-                story.append(Spacer(1, 12))
-        
-        # Build PDF
-        doc.build(story)
-        
-        # Save to file
-        with open(output_pdf_path, 'wb') as f:
-            f.write(pdf_buffer.getvalue())
+            # Try to add some basic text content
+            for paragraph in document.paragraphs:
+                if paragraph.text.strip():
+                    try:
+                        clean_text = str(paragraph.text).strip()[:500]  # Limit length
+                        simple_story.append(Paragraph(clean_text, normal_style))
+                        simple_story.append(Spacer(1, 6))
+                    except:
+                        continue
+            
+            simple_doc.build(simple_story)
         
         return output_pdf_path, pdf_filename
         
@@ -1212,7 +1259,8 @@ def convert_docx_to_pdf_silent(docx_file, output_dir):
 def convert_docx_to_pdf_fallback(docx_file, output_dir):
     """Fallback conversion using docx2pdf (may open Word app)"""
     try:
-        # Create temporary file for the docx
+        # Reset file pointer and create temporary file for the docx
+        docx_file.seek(0)
         with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as temp_docx:
             temp_docx.write(docx_file.read())
             temp_docx_path = temp_docx.name
@@ -1223,6 +1271,14 @@ def convert_docx_to_pdf_fallback(docx_file, output_dir):
         
         # Convert using docx2pdf
         docx_convert(temp_docx_path, output_pdf_path)
+        
+        # Verify the PDF was created
+        if not os.path.exists(output_pdf_path):
+            raise Exception("PDF file was not created by docx2pdf")
+        
+        # Verify the PDF has content
+        if os.path.getsize(output_pdf_path) < 100:
+            raise Exception("Generated PDF appears to be empty or corrupted")
         
         # Clean up temporary file
         os.unlink(temp_docx_path)
@@ -1491,8 +1547,12 @@ def extract_data_from_pdfs(pdf_files, progress_callback=None, model_id="auto", e
         
         extracted_data = []
         
-        # Determine which model to use
-        actual_model_id = model_id if model_id != "auto" else "prebuilt-document"
+        # Determine which model to use - be more conservative with model selection
+        if model_id == "auto":
+            # Use the most basic model for better compatibility
+            actual_model_id = "prebuilt-read"  # More basic than prebuilt-document, better for text extraction
+        else:
+            actual_model_id = model_id
         
         for i, pdf_file in enumerate(pdf_files):
             if progress_callback:
@@ -1551,36 +1611,85 @@ def extract_data_from_pdfs(pdf_files, progress_callback=None, model_id="auto", e
                     content_start = pdf_str.find('%PDF')
                     if content_start >= 0 and len(pdf_str[content_start:]) < 200:
                         raise Exception(f"PDF file {pdf_file.name} appears to have insufficient content")
+                    
+                    # Try to count pages by looking for page objects
+                    page_count_estimate = pdf_str.count('/Type/Page')
+                    if page_count_estimate == 0:
+                        # Alternative method - count page references
+                        page_count_estimate = pdf_str.count(' 0 obj')  # Rough estimate
+                        if page_count_estimate < 3:  # Minimum objects for a valid PDF with pages
+                            raise Exception(f"PDF file {pdf_file.name} appears to have no pages or is severely corrupted (estimated pages: {page_count_estimate})")
                         
                 except Exception as validation_error:
                     # If this additional validation fails, raise it
-                    if "appears to be corrupted" in str(validation_error) or "insufficient content" in str(validation_error):
+                    error_msg = str(validation_error)
+                    if any(keyword in error_msg for keyword in ["corrupted", "insufficient content", "no pages"]):
                         raise validation_error
                     # If it's just a decoding issue, continue (might still be a valid PDF)
                 
-                # Analyze document with Azure AI - ensure no invalid parameters
+                # Analyze document with Azure AI - try multiple approaches
+                result = None
+                azure_error_details = None
+                
+                # Try different Azure AI approaches
                 try:
-                    # Use the simplest possible call to avoid parameter issues
-                    poller = client.begin_analyze_document(
-                        model_id=file_model_id, 
-                        document=pdf_data
-                    )
+                    # Method 1: Use positional arguments (most basic)
+                    poller = client.begin_analyze_document(file_model_id, pdf_data)
                     result = poller.result()
                     
-                    # Validate that we got a valid result
-                    if not result:
-                        raise Exception(f"Azure AI returned empty result for {pdf_file.name}")
-                        
-                except Exception as azure_error:
-                    # Add more specific error handling for Azure AI issues
-                    error_message = str(azure_error).lower()
-                    if "page range" in error_message or "invalid parameter" in error_message:
-                        raise Exception(f"PDF {pdf_file.name} has structural issues that prevent AI analysis: {str(azure_error)}")
-                    elif "invalidargument" in error_message:
-                        raise Exception(f"PDF {pdf_file.name} format is not compatible with Azure AI: {str(azure_error)}")
+                except Exception as method1_error:
+                    azure_error_details = str(method1_error)
+                    
+                    # Check for the specific page range error
+                    if "page range exceeds" in azure_error_details.lower():
+                        try:
+                            # Method 2: Try with explicit empty pages parameter
+                            poller = client.begin_analyze_document(
+                                model_id=file_model_id,
+                                document=pdf_data,
+                                pages=None  # Explicitly set pages to None
+                            )
+                            result = poller.result()
+                            azure_error_details = None  # Clear error if this works
+                            
+                        except Exception as method2_error:
+                            try:
+                                # Method 3: Try with analyze_document instead of begin_analyze_document
+                                # This is synchronous and might handle pages differently
+                                result = client.analyze_document(file_model_id, pdf_data)
+                                azure_error_details = None  # Clear error if this works
+                                
+                            except Exception as method3_error:
+                                # If all methods fail, use the most informative error
+                                if "page range exceeds" in str(method3_error).lower():
+                                    azure_error_details = str(method3_error)
+                                else:
+                                    azure_error_details = str(method1_error)  # Use original error
+                    
+                    # If it's not a page range error, try method 2 anyway
+                    elif not result:
+                        try:
+                            poller = client.begin_analyze_document(
+                                model_id=file_model_id,
+                                document=pdf_data
+                            )
+                            result = poller.result()
+                            azure_error_details = None
+                        except Exception:
+                            pass  # Keep original error
+                
+                # Check if we got a valid result
+                if not result:
+                    if azure_error_details:
+                        error_message = azure_error_details.lower()
+                        if "page range exceeds" in error_message:
+                            raise Exception(f"PDF {pdf_file.name} appears to have 0 pages or is corrupted. Azure AI cannot process documents with no valid pages. Error details: {azure_error_details}")
+                        elif "invalidargument" in error_message:
+                            raise Exception(f"PDF {pdf_file.name} format is not supported by Azure AI. This may be due to encryption, corruption, or an unsupported PDF version. Error details: {azure_error_details}")
+                        else:
+                            raise Exception(f"Azure AI failed to process {pdf_file.name}: {azure_error_details}")
                     else:
-                        # Re-raise the original error
-                        raise azure_error
+                        raise Exception(f"Azure AI returned empty result for {pdf_file.name} with no error details")
                 
                 # Extract text content
                 file_data = {
