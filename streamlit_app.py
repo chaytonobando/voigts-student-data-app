@@ -1943,9 +1943,9 @@ def show_pdf_extraction():
                     progress_bar = st.progress(0)
                     status_text = st.empty()
                     
-                    def update_progress(message, progress):
+                    def update_progress(progress):
                         progress_bar.progress(progress)
-                        status_text.text(f"🤖 {message}")
+                        status_text.text(f"🤖 Processing file {int(progress * len(uploaded_pdfs)) + 1} of {len(uploaded_pdfs)}...")
                     
                     with st.spinner("🤖 AI is analyzing your documents..."):
                         # Prepare extraction options
@@ -3435,8 +3435,8 @@ def execute_automated_workflow(word_files, comparison_file, ai_model_id, ai_conf
                 pdf_bytes.name = pdf_file['name']
                 ai_files.append(pdf_bytes)
             
-            def ai_progress_callback(message, progress):
-                ai_status.text(f"🤖 {message}")
+            def ai_progress_callback(progress):
+                ai_status.text(f"🤖 Processing file {int(progress * len(pdf_files)) + 1} of {len(pdf_files)}...")
                 ai_progress.progress(progress)
             
             # Extract data using AI
