@@ -1491,53 +1491,117 @@ def extract_data_from_pdfs(pdf_files, progress_callback=None, model_id="auto", e
         
         extracted_data = []
         
+        # Determine which model to use
+        actual_model_id = model_id if model_id != "auto" else "prebuilt-document"
+        
         for i, pdf_file in enumerate(pdf_files):
             if progress_callback:
                 progress_callback(i / len(pdf_files))
             
-            # Reset file pointer
-            pdf_file.seek(0)
-            
-            # Analyze document with Azure AI
-            poller = client.begin_analyze_document(
-                "prebuilt-document", 
-                document=pdf_file.read()
-            )
-            result = poller.result()
-            
-            # Extract text content
-            file_data = {
-                'filename': pdf_file.name,
-                'extracted_text': [],
-                'tables': [],
-                'key_value_pairs': []
-            }
-            
-            # Extract text from pages
-            for page in result.pages:
-                for line in page.lines:
-                    file_data['extracted_text'].append(line.content)
-            
-            # Extract tables if available
-            for table in result.tables:
-                table_data = []
-                for row in table.cells:
-                    table_data.append({
-                        'row_index': row.row_index,
-                        'column_index': row.column_index,
-                        'content': row.content
-                    })
-                file_data['tables'].append(table_data)
-            
-            # Extract key-value pairs
-            for kv_pair in result.key_value_pairs:
-                if kv_pair.key and kv_pair.value:
-                    file_data['key_value_pairs'].append({
-                        'key': kv_pair.key.content,
-                        'value': kv_pair.value.content
-                    })
-            
-            extracted_data.append(file_data)
+            try:
+                # Reset file pointer and validate PDF
+                pdf_file.seek(0)
+                pdf_data = pdf_file.read()
+                
+                # Basic validation - check if PDF has content
+                if len(pdf_data) < 100:  # Minimum reasonable PDF size
+                    raise Exception(f"PDF file {pdf_file.name} appears to be too small or empty")
+                
+                # Check for PDF header
+                if not pdf_data.startswith(b'%PDF'):
+                    raise Exception(f"File {pdf_file.name} does not appear to be a valid PDF")
+                
+                # Use file-specific model if available
+                file_model_id = file_models.get(pdf_file.name, actual_model_id) if file_models else actual_model_id
+                
+                # Analyze document with Azure AI
+                poller = client.begin_analyze_document(
+                    file_model_id, 
+                    document=pdf_data
+                )
+                result = poller.result()
+                
+                # Extract text content
+                file_data = {
+                    'filename': pdf_file.name,
+                    'source_file': pdf_file.name,
+                    'model_used': file_model_id,
+                    'extracted_text': [],
+                    'tables': [],
+                    'key_value_pairs': [],
+                    'page_count': len(result.pages) if result.pages else 0,
+                    'confidence': 0.0
+                }
+                
+                # Calculate average confidence
+                confidence_scores = []
+                
+                # Extract text from pages
+                if result.pages:
+                    for page in result.pages:
+                        if hasattr(page, 'lines') and page.lines:
+                            for line in page.lines:
+                                file_data['extracted_text'].append(line.content)
+                                if hasattr(line, 'confidence') and line.confidence:
+                                    confidence_scores.append(line.confidence)
+                
+                # Extract tables if available
+                if hasattr(result, 'tables') and result.tables:
+                    for table in result.tables:
+                        table_data = []
+                        for cell in table.cells:
+                            table_data.append({
+                                'row_index': cell.row_index,
+                                'column_index': cell.column_index,
+                                'content': cell.content,
+                                'confidence': getattr(cell, 'confidence', None)
+                            })
+                            if hasattr(cell, 'confidence') and cell.confidence:
+                                confidence_scores.append(cell.confidence)
+                        file_data['tables'].append(table_data)
+                
+                # Extract key-value pairs
+                if hasattr(result, 'key_value_pairs') and result.key_value_pairs:
+                    for kv_pair in result.key_value_pairs:
+                        if kv_pair.key and kv_pair.value:
+                            kv_data = {
+                                'key': kv_pair.key.content,
+                                'value': kv_pair.value.content
+                            }
+                            # Add confidence if available
+                            if hasattr(kv_pair, 'confidence') and kv_pair.confidence:
+                                kv_data['confidence'] = kv_pair.confidence
+                                confidence_scores.append(kv_pair.confidence)
+                            
+                            file_data['key_value_pairs'].append(kv_data)
+                
+                # Calculate average confidence
+                if confidence_scores:
+                    file_data['confidence'] = sum(confidence_scores) / len(confidence_scores)
+                
+                # Add document type if available
+                if hasattr(result, 'document_type'):
+                    file_data['document_type'] = result.document_type
+                
+                extracted_data.append(file_data)
+                
+            except Exception as e:
+                # Add error information for this file
+                error_data = {
+                    'filename': pdf_file.name,
+                    'source_file': pdf_file.name,
+                    'model_used': file_models.get(pdf_file.name, actual_model_id) if file_models else actual_model_id,
+                    'error': str(e),
+                    'extracted_text': [],
+                    'tables': [],
+                    'key_value_pairs': [],
+                    'page_count': 0,
+                    'confidence': 0.0
+                }
+                extracted_data.append(error_data)
+                
+                # Log the error but continue processing other files
+                print(f"Error processing {pdf_file.name}: {str(e)}")
         
         if progress_callback:
             progress_callback(1.0)
@@ -1554,42 +1618,65 @@ def extract_data_from_pdfs(pdf_files, progress_callback=None, model_id="auto", e
                 # Summary sheet
                 summary_data = []
                 for i, data in enumerate(extracted_data):
-                    summary_data.append({
+                    summary_row = {
                         'File': data['filename'],
+                        'Model Used': data.get('model_used', 'Unknown'),
+                        'Status': 'Error' if 'error' in data else 'Success',
                         'Text Lines': len(data['extracted_text']),
                         'Tables': len(data['tables']),
-                        'Key-Value Pairs': len(data['key_value_pairs'])
-                    })
+                        'Key-Value Pairs': len(data['key_value_pairs']),
+                        'Page Count': data.get('page_count', 0),
+                        'Confidence': f"{data.get('confidence', 0):.1%}"
+                    }
+                    
+                    if 'error' in data:
+                        summary_row['Error'] = data['error']
+                    
+                    summary_data.append(summary_row)
                 
                 if summary_data:
                     summary_df = pd.DataFrame(summary_data)
                     summary_df.to_excel(writer, sheet_name='Summary', index=False)
                 
-                # Extracted data sheet
+                # Extracted data sheet - only include successful extractions
                 all_extracted = []
                 for data in extracted_data:
-                    # Create a row with basic info
-                    row = {'Filename': data['filename']}
-                    
-                    # Add key-value pairs
-                    for kv in data['key_value_pairs']:
-                        row[kv['key']] = kv['value']
-                    
-                    # Add extracted text as a single field if available
-                    if data['extracted_text']:
-                        row['Full_Text'] = ' '.join(data['extracted_text'][:5])  # First 5 lines
-                    
-                    all_extracted.append(row)
+                    if 'error' not in data:  # Only process successful extractions
+                        # Create a row with basic info
+                        row = {
+                            'Filename': data['filename'],
+                            'Model_Used': data.get('model_used', 'Unknown'),
+                            'Page_Count': data.get('page_count', 0),
+                            'Confidence': data.get('confidence', 0),
+                            'Document_Type': data.get('document_type', 'Unknown')
+                        }
+                        
+                        # Add key-value pairs
+                        for kv in data['key_value_pairs']:
+                            # Clean up key names for Excel column headers
+                            clean_key = str(kv['key']).replace(' ', '_').replace(':', '').replace('/', '_')
+                            row[clean_key] = kv['value']
+                        
+                        # Add extracted text as a single field if available
+                        if data['extracted_text']:
+                            row['Full_Text_Preview'] = ' '.join(data['extracted_text'][:3])  # First 3 lines
+                        
+                        all_extracted.append(row)
                 
                 if all_extracted:
                     extracted_df = pd.DataFrame(all_extracted)
                     extracted_df.to_excel(writer, sheet_name='Extracted Data', index=False)
+                else:
+                    # Create an empty sheet with headers if no successful extractions
+                    empty_df = pd.DataFrame({'Message': ['No successful extractions found']})
+                    empty_df.to_excel(writer, sheet_name='Extracted Data', index=False)
             
             excel_data = output.getvalue()
             
         except Exception as e:
             # If Excel generation fails, continue without it
-            st.warning(f"⚠️ Could not generate Excel file: {str(e)}")
+            print(f"Warning: Could not generate Excel file: {str(e)}")
+            excel_data = None
         
         return {"success": True, "data": extracted_data, "excel_data": excel_data, "filename": filename}
         
