@@ -1503,23 +1503,84 @@ def extract_data_from_pdfs(pdf_files, progress_callback=None, model_id="auto", e
                 pdf_file.seek(0)
                 pdf_data = pdf_file.read()
                 
-                # Basic validation - check if PDF has content
+                # Enhanced PDF validation
                 if len(pdf_data) < 100:  # Minimum reasonable PDF size
-                    raise Exception(f"PDF file {pdf_file.name} appears to be too small or empty")
+                    raise Exception(f"PDF file {pdf_file.name} appears to be too small or empty ({len(pdf_data)} bytes)")
                 
                 # Check for PDF header
                 if not pdf_data.startswith(b'%PDF'):
-                    raise Exception(f"File {pdf_file.name} does not appear to be a valid PDF")
+                    raise Exception(f"File {pdf_file.name} does not appear to be a valid PDF (missing PDF header)")
+                
+                # Additional checks for PDF integrity
+                try:
+                    # Check for EOF marker
+                    if b'%%EOF' not in pdf_data[-1024:]:  # Check last 1KB for EOF
+                        raise Exception(f"PDF file {pdf_file.name} appears to be truncated (missing EOF marker)")
+                    
+                    # Check for minimum PDF version
+                    pdf_header = pdf_data[:20].decode('ascii', errors='ignore')
+                    if '%PDF-' in pdf_header:
+                        version_part = pdf_header.split('%PDF-')[1][:3]
+                        try:
+                            version = float(version_part)
+                            if version < 1.0 or version > 2.0:
+                                raise Exception(f"PDF file {pdf_file.name} has unsupported PDF version: {version}")
+                        except ValueError:
+                            # If we can't parse version, continue but warn
+                            pass
+                            
+                except Exception as integrity_error:
+                    raise Exception(f"PDF integrity check failed for {pdf_file.name}: {str(integrity_error)}")
+                
+                # Check file size limits (Azure AI has limits)
+                max_size = 500 * 1024 * 1024  # 500MB limit for Azure AI
+                if len(pdf_data) > max_size:
+                    raise Exception(f"PDF file {pdf_file.name} is too large ({len(pdf_data)/1024/1024:.1f}MB). Maximum size is {max_size/1024/1024}MB")
                 
                 # Use file-specific model if available
                 file_model_id = file_models.get(pdf_file.name, actual_model_id) if file_models else actual_model_id
                 
-                # Analyze document with Azure AI
-                poller = client.begin_analyze_document(
-                    file_model_id, 
-                    document=pdf_data
-                )
-                result = poller.result()
+                # Additional PDF validation using a simple PDF parser check
+                try:
+                    # Look for basic PDF structure markers
+                    pdf_str = pdf_data.decode('latin-1', errors='ignore')
+                    if 'startxref' not in pdf_str or 'trailer' not in pdf_str:
+                        raise Exception(f"PDF file {pdf_file.name} appears to be corrupted or incomplete")
+                    
+                    # Check for minimum content length after headers
+                    content_start = pdf_str.find('%PDF')
+                    if content_start >= 0 and len(pdf_str[content_start:]) < 200:
+                        raise Exception(f"PDF file {pdf_file.name} appears to have insufficient content")
+                        
+                except Exception as validation_error:
+                    # If this additional validation fails, raise it
+                    if "appears to be corrupted" in str(validation_error) or "insufficient content" in str(validation_error):
+                        raise validation_error
+                    # If it's just a decoding issue, continue (might still be a valid PDF)
+                
+                # Analyze document with Azure AI - ensure no invalid parameters
+                try:
+                    # Use the simplest possible call to avoid parameter issues
+                    poller = client.begin_analyze_document(
+                        model_id=file_model_id, 
+                        document=pdf_data
+                    )
+                    result = poller.result()
+                    
+                    # Validate that we got a valid result
+                    if not result:
+                        raise Exception(f"Azure AI returned empty result for {pdf_file.name}")
+                        
+                except Exception as azure_error:
+                    # Add more specific error handling for Azure AI issues
+                    error_message = str(azure_error).lower()
+                    if "page range" in error_message or "invalid parameter" in error_message:
+                        raise Exception(f"PDF {pdf_file.name} has structural issues that prevent AI analysis: {str(azure_error)}")
+                    elif "invalidargument" in error_message:
+                        raise Exception(f"PDF {pdf_file.name} format is not compatible with Azure AI: {str(azure_error)}")
+                    else:
+                        # Re-raise the original error
+                        raise azure_error
                 
                 # Extract text content
                 file_data = {
