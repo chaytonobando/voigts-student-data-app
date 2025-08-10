@@ -1575,7 +1575,59 @@ def extract_data_from_pdfs(pdf_files, progress_callback=None, model_id="auto", e
         if progress_callback:
             progress_callback(1.0)
         
-        return {"success": True, "data": extracted_data, "excel_data": None, "filename": f"extracted_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"}
+        # Generate Excel data from extracted results
+        excel_data = None
+        filename = f"extracted_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        
+        try:
+            import io
+            import pandas as pd
+            
+            # Create Excel file with extracted data
+            output = io.BytesIO()
+            
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                # Summary sheet
+                summary_data = []
+                for i, data in enumerate(extracted_data):
+                    summary_data.append({
+                        'File': data['filename'],
+                        'Text Lines': len(data['extracted_text']),
+                        'Tables': len(data['tables']),
+                        'Key-Value Pairs': len(data['key_value_pairs'])
+                    })
+                
+                if summary_data:
+                    summary_df = pd.DataFrame(summary_data)
+                    summary_df.to_excel(writer, sheet_name='Summary', index=False)
+                
+                # Extracted data sheet
+                all_extracted = []
+                for data in extracted_data:
+                    # Create a row with basic info
+                    row = {'Filename': data['filename']}
+                    
+                    # Add key-value pairs
+                    for kv in data['key_value_pairs']:
+                        row[kv['key']] = kv['value']
+                    
+                    # Add extracted text as a single field if available
+                    if data['extracted_text']:
+                        row['Full_Text'] = ' '.join(data['extracted_text'][:5])  # First 5 lines
+                    
+                    all_extracted.append(row)
+                
+                if all_extracted:
+                    extracted_df = pd.DataFrame(all_extracted)
+                    extracted_df.to_excel(writer, sheet_name='Extracted Data', index=False)
+            
+            excel_data = output.getvalue()
+            
+        except Exception as e:
+            # If Excel generation fails, continue without it
+            st.warning(f"⚠️ Could not generate Excel file: {str(e)}")
+        
+        return {"success": True, "data": extracted_data, "excel_data": excel_data, "filename": filename}
         
     except Exception as e:
         return {"error": str(e)}
@@ -1907,13 +1959,24 @@ def show_pdf_extraction():
                         # Get file-specific models if any
                         file_models = st.session_state.get('file_models', {})
                         
-                        excel_data, filename, extracted_data = extract_data_from_pdfs(
+                        # Extract data using AI - function returns a dictionary
+                        extraction_result = extract_data_from_pdfs(
                             uploaded_pdfs, 
                             progress_callback=update_progress,
                             model_id=selected_model_id,
                             extract_options=extract_options,
                             file_models=file_models
                         )
+                        
+                        # Check if extraction was successful
+                        if "error" in extraction_result:
+                            st.error(f"❌ Extraction failed: {extraction_result['error']}")
+                            return
+                        
+                        # Extract values from the result dictionary
+                        excel_data = extraction_result.get('excel_data')
+                        filename = extraction_result.get('filename')
+                        extracted_data = extraction_result.get('data', [])
                     
                     # Clear progress indicators
                     progress_bar.empty()
@@ -3384,12 +3447,22 @@ def execute_automated_workflow(word_files, comparison_file, ai_model_id, ai_conf
                 'confidence_threshold': ai_confidence
             }
             
-            excel_data, ai_filename, extracted_data = extract_data_from_pdfs(
+            # Extract data using AI - function returns a dictionary
+            extraction_result = extract_data_from_pdfs(
                 ai_files,
                 progress_callback=ai_progress_callback,
                 model_id=ai_model_id,
                 extract_options=extract_options_dict
             )
+            
+            # Check if extraction was successful
+            if "error" in extraction_result:
+                raise Exception(f"AI extraction failed: {extraction_result['error']}")
+            
+            # Extract values from the result dictionary
+            excel_data = extraction_result.get('excel_data')
+            ai_filename = extraction_result.get('filename')
+            extracted_data = extraction_result.get('data', [])
             
             ai_status.success(f"✅ Extracted data from {len(pdf_files)} files")
             
@@ -3406,17 +3479,24 @@ def execute_automated_workflow(word_files, comparison_file, ai_model_id, ai_conf
                 val_progress = st.progress(0)
                 val_status = st.empty()
             
-            # Create AI file object for validation
-            ai_file_obj = BytesIO(excel_data)
-            ai_file_obj.name = ai_filename
-            
-            val_status.text("🔍 Comparing AI data with student database...")
-            val_progress.progress(0.5)
-            
-            # Run validation
-            validation_results, validation_output, validation_filename = process_comparison(
-                ai_file_obj, comparison_file, matching_sensitivity, max_results
-            )
+            # Check if we have Excel data for validation
+            if excel_data is None:
+                val_status.error("❌ No Excel data available for validation - skipping validation step")
+                validation_results = []
+                validation_output = b''
+                validation_filename = f"validation_skipped_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            else:
+                # Create AI file object for validation
+                ai_file_obj = BytesIO(excel_data)
+                ai_file_obj.name = ai_filename
+                
+                val_status.text("🔍 Comparing AI data with student database...")
+                val_progress.progress(0.5)
+                
+                # Run validation
+                validation_results, validation_output, validation_filename = process_comparison(
+                    ai_file_obj, comparison_file, matching_sensitivity, max_results
+                )
             
             val_progress.progress(1.0)
             val_status.success("✅ Data validation completed")
