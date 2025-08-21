@@ -1515,8 +1515,8 @@ def show_word_to_pdf():
         - **Output:** High-quality PDF files ready for AI extraction
         """)
 
-def extract_data_from_pdfs(pdf_files, progress_callback=None, model_id="auto", extract_options=None, file_models=None):
-    """Extract data from uploaded PDF files using Azure AI"""
+def extract_data_from_pdfs(pdf_files, progress_callback=None, model_id="auto", extract_options=None, file_models=None, batch_size=10):
+    """Extract data from uploaded PDF files using Azure AI with batch processing"""
     try:
         # Check if Azure AI is available
         if not AI_EXTRACTOR_AVAILABLE:
@@ -1554,9 +1554,23 @@ def extract_data_from_pdfs(pdf_files, progress_callback=None, model_id="auto", e
         else:
             actual_model_id = model_id
         
-        for i, pdf_file in enumerate(pdf_files):
-            if progress_callback:
-                progress_callback(i / len(pdf_files))
+        # Process files in batches to avoid timeouts and rate limits
+        total_files = len(pdf_files)
+        
+        for batch_start in range(0, total_files, batch_size):
+            batch_end = min(batch_start + batch_size, total_files)
+            batch_files = pdf_files[batch_start:batch_end]
+            
+            # Add small delay between batches to avoid rate limiting
+            if batch_start > 0:
+                import time
+                time.sleep(2)  # 2-second delay between batches
+            
+            # Process current batch
+            for i, pdf_file in enumerate(batch_files):
+                file_index = batch_start + i
+                if progress_callback:
+                    progress_callback(file_index / total_files)
             
             try:
                 # Reset file pointer and validate PDF
@@ -1633,15 +1647,25 @@ def extract_data_from_pdfs(pdf_files, progress_callback=None, model_id="auto", e
                 
                 # Try different Azure AI approaches
                 try:
-                    # Method 1: Use positional arguments (most basic)
+                    # Method 1: Use positional arguments (most basic) with extended timeout
                     poller = client.begin_analyze_document(file_model_id, pdf_data)
-                    result = poller.result()
+                    result = poller.result(timeout=300)  # 5 minutes timeout per file
                     
                 except Exception as method1_error:
                     azure_error_details = str(method1_error)
                     
+                    # Check for timeout errors and retry with longer timeout
+                    if "timeout" in azure_error_details.lower() or "timed out" in azure_error_details.lower():
+                        try:
+                            # Retry with longer timeout for difficult files
+                            poller = client.begin_analyze_document(file_model_id, pdf_data)
+                            result = poller.result(timeout=600)  # 10 minutes for retry
+                            azure_error_details = None
+                        except Exception as timeout_retry_error:
+                            azure_error_details = f"Extended timeout retry failed: {str(timeout_retry_error)}"
+                    
                     # Check for the specific page range error
-                    if "page range exceeds" in azure_error_details.lower():
+                    elif "page range exceeds" in azure_error_details.lower():
                         try:
                             # Method 2: Try with explicit empty pages parameter
                             poller = client.begin_analyze_document(
@@ -1649,7 +1673,7 @@ def extract_data_from_pdfs(pdf_files, progress_callback=None, model_id="auto", e
                                 document=pdf_data,
                                 pages=None  # Explicitly set pages to None
                             )
-                            result = poller.result()
+                            result = poller.result(timeout=300)
                             azure_error_details = None  # Clear error if this works
                             
                         except Exception as method2_error:
@@ -1673,7 +1697,7 @@ def extract_data_from_pdfs(pdf_files, progress_callback=None, model_id="auto", e
                                 model_id=file_model_id,
                                 document=pdf_data
                             )
-                            result = poller.result()
+                            result = poller.result(timeout=300)
                             azure_error_details = None
                         except Exception:
                             pass  # Keep original error
@@ -2155,6 +2179,26 @@ def show_pdf_extraction():
                 # Save file models to session state
                 st.session_state.file_models = file_models
             
+            # Batch processing options
+            st.markdown("### ⚙️ Processing Options")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                batch_size = st.slider(
+                    "Batch Size (files processed simultaneously)",
+                    min_value=1,
+                    max_value=min(20, len(uploaded_pdfs)),
+                    value=min(10, len(uploaded_pdfs)),
+                    help="Smaller batches are more reliable but slower. Use smaller batches if you experience timeouts."
+                )
+            
+            with col2:
+                if len(uploaded_pdfs) > 20:
+                    st.warning(f"⚠️ Processing {len(uploaded_pdfs)} files. Consider using smaller batches for reliability.")
+                elif len(uploaded_pdfs) > 40:
+                    st.error(f"⚠️ Processing {len(uploaded_pdfs)} files may cause timeouts. Strongly recommended to use batch size ≤ 5.")
+                    batch_size = min(5, batch_size)
+            
             if st.button("🚀 Start AI Extraction", type="primary"):
                 try:
                     # Progress tracking
@@ -2183,7 +2227,8 @@ def show_pdf_extraction():
                             progress_callback=update_progress,
                             model_id=selected_model_id,
                             extract_options=extract_options,
-                            file_models=file_models
+                            file_models=file_models,
+                            batch_size=batch_size
                         )
                         
                         # Check if extraction was successful
